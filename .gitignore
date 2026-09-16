@@ -1,0 +1,26 @@
+# Build directories
+build/
+out/
+.vs/
+.vscode/
+
+# CMake user-specific presets (local toolchain paths)
+CMakeUserPresets.json
+
+# Build artifacts
+*.exe
+*.obj
+*.o
+*.pdb
+*.ilk
+*.lib
+*.dll
+*.a
+
+# Runtime files generated next to the executable
+settings.ini
+routes.json
+
+# OS noise
+Thumbs.db
+desktop.ini

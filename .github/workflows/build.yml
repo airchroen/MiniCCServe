@@ -1,0 +1,91 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  msvc:
+    name: MSVC x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure
+        run: cmake --preset msvc-release
+
+      - name: Build
+        run: cmake --build --preset msvc-release
+
+      - name: Smoke test
+        run: python scripts/smoke-test.py --exe build/msvc-release/MiniCCServe.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MiniCCServe-msvc-x64
+          path: build/msvc-release/MiniCCServe.exe
+
+  mingw:
+    name: llvm-mingw x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install llvm-mingw
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo mstorsjo/llvm-mingw --pattern '*ucrt-x86_64.zip' --output llvm-mingw.zip
+          $dest = "$env:RUNNER_TEMP/llvm-mingw"
+          7z x llvm-mingw.zip -o"$dest" | Out-Null
+          $toolchain = (Get-ChildItem $dest -Directory | Select-Object -First 1).FullName -replace '\\', '/'
+          "TOOLCHAIN_DIR=$toolchain" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $env:CC = "$toolchain/bin/x86_64-w64-mingw32-clang.exe"
+          $env:CXX = "$toolchain/bin/x86_64-w64-mingw32-clang++.exe"
+          $env:RC = "$toolchain/bin/x86_64-w64-mingw32-windres.exe"
+          cmake --preset mingw-release -D CMAKE_RC_COMPILER="$env:RC"
+        shell: pwsh
+
+      - name: Build
+        run: |
+          $env:CC = "$env:TOOLCHAIN_DIR/bin/x86_64-w64-mingw32-clang.exe"
+          $env:CXX = "$env:TOOLCHAIN_DIR/bin/x86_64-w64-mingw32-clang++.exe"
+          cmake --build --preset mingw-release
+        shell: pwsh
+
+      - name: Smoke test
+        run: python scripts/smoke-test.py --exe build/mingw-release/MiniCCServe.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MiniCCServe-mingw-x64
+          path: build/mingw-release/MiniCCServe.exe
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [msvc, mingw]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Package
+        run: |
+          mkdir -p pkg
+          cp dist/MiniCCServe-mingw-x64/MiniCCServe.exe pkg/
+          cp README.md LICENSE pkg/
+          cd pkg && zip -r ../MiniCCServe-${{ github.ref_name }}-mingw-x64.zip .
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: MiniCCServe-${{ github.ref_name }}-mingw-x64.zip
